@@ -1,0 +1,132 @@
+---
+title: 'Practical Machine Learning: Predicting Weightlifting Performance'
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+# Practical Machine Learning: Predicting Weightlifting Performance'
+Paper submitted by S. Masyn, smasyn@yahoo.com, as project work of the Practical Machine Learning Course.
+
+May,24, 2015
+
+# Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+# Synopsis
+In this exercise we explore the data set from Weight Lifting Exercise Dataset, clean and tidy up the tidy and assess some models predictin weightlifting performance
+
+# Summary
+
+
+## Required Libraries
+caret,ggplot2, randomForest, e1071 and knitr are required libraries
+```{r echo=FALSE}
+library(caret)
+library(ggplot2)
+library(randomForest)
+library(e1071)
+library(knitr)
+opts_chunk$set(fig.path='./figure/')
+```
+
+# Data Handling
+The data was extracted from the Weight Lifting Exercise Dataset. Several parameters contain NA values; after looking at the data structure the following could be determined: gyros,accel, total_accel, magnet, roll, pitch and yaw features  have non-missing values. these are retained from the data set.
+
+```{r echo=FALSE}
+data(mtcars)
+trgRaw <- read.csv("pml-training.csv")
+    tstRaw <- read.csv("pml-testing.csv")
+
+    sum(is.na(trgRaw));sum(is.na(tstRaw))
+    trgIdx <- colnames(trgRaw)
+
+    cn <- c(grep("^roll",trgIdx,value=TRUE),grep("^accel",trgIdx,value=TRUE),
+        grep("^gyro",trgIdx,value=TRUE),grep("^total",trgIdx,value=TRUE),
+        grep("^magnet",trgIdx,value=TRUE),grep("^pitch",trgIdx,value=TRUE),
+        grep("^yaw",trgIdx,value=TRUE))
+
+    # 52 parameters contribute
+    trgSub <- subset(trgRaw,select = c(cn,"classe"))
+    tstSub <- subset(tstRaw,select = c(cn,"problem_id"))
+
+```
+After subsetting, 52 parameters contribute to the data, none of these parameters have NA values
+```{r echo=FALSE}
+ sum(is.na(trgSub));sum(is.na(tstSub))
+```
+A potential further reduction of the contributing features is explored by applying a Principal Component Analysis
+# Principal Component Analysis
+```{r echo=FALSE}
+preProc <- preProcess(trgSub[,-53],method="pca",thresh=0.8)
+trgPca <- predict(preProc, trgSub[,-53])
+tstPca <- predict(preProc, tstSub[,-53])
+```
+12 parameters contribute to 80% of the variance; Later, the model using the Principal Components is explored
+
+# Cross Validation
+
+To validate the model a cross validation data set is constructed. 80% data used as actual training set, 20% as test set. Centering and Scaling is used, not using it did not show any better or worse results 
+```{r echo=FALSE}
+    set.seed(3950)
+    inTrain <- createDataPartition(y=trgSub$classe,p=0.8,list=FALSE)
+    trgX <- trgSub[inTrain,]
+    tstX <- trgSub[-inTrain,]
+
+    fitCtrl <- trainControl(method="repeatedcv",number=10,repeats=10)
+```
+Finally, several models are being fitted
+```{r echo=FALSE}
+    modFitPCA <- train(trgSub$classe ~ ., data=trgPca,method="qda",preProcess=c("center","scale"),trControl=fitCtrl)
+    modFitQDA <- train(trgX$classe ~ ., data=trgX,method="qda",preProcess=c("center","scale"),trControl=fitCtrl)
+    modFitLDA <- train(trgX$classe ~ ., data=trgX,method="lda",preProcess=c("center","scale"),trControl=fitCtrl)
+    
+    #modFitRF <- train(trgSub$classe~.,data=TrainingPC,method="rf",prox=TRUE)
+    #modFitGLM <- train(trgSub$classe ~ .,data=trgSub,method="glm", verbose=FALSE)
+```
+After more than 1 hour of processing the random Forest model got abandoned (method="rf")
+The glm model raises accuracy warnings, for which I was unbale to find a solution
+The QDA showed best accuracy: QDA (89%) LDA(70%) PCA(56%)
+```{r echo=FALSE}
+print(modFitQDA)
+```
+# Expected Out-of-Sample Error
+We would expect that the out-of-sample error is less on non-training data
+Using the cross validation test set the out-of-sample-error of the prediction model can be estimated
+```{r echo=FALSE}
+trgPred <- predict(modFitQDA,newdata=trgX)
+e <- (trgPred==trgX$classe)
+print(sum(e)/length(e))
+confusionMatrix(data=trgPred, reference=trgX$classe)
+
+tstPred <- predict(modFitQDA,newdata=tstX)
+e <- (tstPred==tstX$classe)
+print(sum(e)/length(e))
+confusionMatrix(data=tstPred,reference=tstX$classe)
+```
+# Results on the Submission
+```{r echo=FALSE}
+    pml_write_files <- function(x){
+        n = length(x)
+        for(i in 1:n){
+            filename = paste0("problem_id_",i,".txt")
+            write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+    }
+```
+
+```{r echo=FALSE}
+    
+pred <- predict(modFitQDA,tstSub)
+    
+    # submission
+    answers <- pred
+    print(answers)
+    
+    pml_write_files(answers)
+```
+Finally the results were submitted to the Coursera Website, only 7/20 were correct, which is a disappointing result
+Would love to see the correct approach
